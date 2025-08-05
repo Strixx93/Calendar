@@ -21,11 +21,13 @@ const App = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [calendarData, setCalendarData] = useState({});
   const [showModal, setShowModal] = useState(false);
-  const [selectedDateTaps, setSelectedDateTaps] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedDateAvailability, setSelectedDateAvailability] = useState([]);
   const [db, setDb] = useState(null);
   const [auth, setAuth] = useState(null);
   const [userId, setUserId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [savingDates, setSavingDates] = useState(new Set()); // Track which dates are being saved
 
   // Initialize Firebase and handle authentication
   useEffect(() => {
@@ -88,8 +90,8 @@ const App = () => {
     return () => unsubscribe();
   }, [db, userId]);
 
-  // Function to handle a user tapping on a day
-  const handleDayTap = async (day) => {
+  // Function to toggle user availability on a date
+  const toggleAvailability = async (day) => {
     if (!userName.trim()) {
       alert("Please enter your name first!");
       return;
@@ -100,40 +102,78 @@ const App = () => {
     }
     
     const dayString = `${currentDate.getFullYear()}-${currentDate.getMonth() + 1}-${day}`;
-    const calendarDocRef = doc(db, `/artifacts/${APP_ID}/public/data/calendars`, userId);
-
+    
+    // Add to saving state
+    setSavingDates(prev => new Set([...prev, dayString]));
+    
     try {
       // Get the current state of the document
       const currentDocData = calendarData || {};
-      const currentTaps = currentDocData[dayString]?.taps || [];
+      const currentAvailability = currentDocData[dayString]?.availability || [];
       
-      const newTaps = [...currentTaps, { name: userName, userId: auth.currentUser.uid }];
+      // Check if user is already available on this date
+      const userIndex = currentAvailability.findIndex(person => 
+        person.name.toLowerCase() === userName.trim().toLowerCase()
+      );
       
-      // Update the document with the new tap data for the specific day
+      let newAvailability;
+      if (userIndex >= 0) {
+        // User is already available, remove them
+        newAvailability = currentAvailability.filter((_, index) => index !== userIndex);
+      } else {
+        // User is not available, add them
+        newAvailability = [...currentAvailability, { 
+          name: userName.trim(), 
+          userId: auth.currentUser.uid,
+          addedAt: new Date().toISOString()
+        }];
+      }
+      
+      // Update the document with the new availability data for the specific day
       await setDoc(calendarDocRef, {
         ...currentDocData,
         [dayString]: {
-            taps: newTaps,
+            availability: newAvailability,
         }
       }, { merge: true });
 
     } catch (error) {
       console.error("Error updating document:", error);
+      alert("Failed to update availability. Please try again.");
+    } finally {
+      // Remove from saving state
+      setSavingDates(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(dayString);
+        return newSet;
+      });
     }
   };
 
-  // Function to open the modal and show who tapped on a date
+  // Function to open the modal and show who's available on a date
   const handleOpenModal = (day) => {
     const dayString = `${currentDate.getFullYear()}-${currentDate.getMonth() + 1}-${day}`;
-    const taps = (calendarData[dayString]?.taps || []);
-    setSelectedDateTaps(taps);
+    const availability = (calendarData[dayString]?.availability || []);
+    setSelectedDate(day);
+    setSelectedDateAvailability(availability);
     setShowModal(true);
   };
 
   // Function to close the modal
   const handleCloseModal = () => {
     setShowModal(false);
-    setSelectedDateTaps([]);
+    setSelectedDate(null);
+    setSelectedDateAvailability([]);
+  };
+
+  // Check if current user is available on a specific date
+  const isUserAvailable = (day) => {
+    if (!userName.trim()) return false;
+    const dayString = `${currentDate.getFullYear()}-${currentDate.getMonth() + 1}-${day}`;
+    const availability = calendarData[dayString]?.availability || [];
+    return availability.some(person => 
+      person.name.toLowerCase() === userName.trim().toLowerCase()
+    );
   };
 
   // Utility function to get the number of days in a month
@@ -165,29 +205,46 @@ const App = () => {
     // Fill in the days of the month
     for (let day = 1; day <= daysInMonth; day++) {
       const dayString = `${year}-${month + 1}-${day}`;
-      const taps = calendarData[dayString]?.taps || [];
-      const tapCount = taps.length;
+      const availability = calendarData[dayString]?.availability || [];
+      const availableCount = availability.length;
+      const userIsAvailable = isUserAvailable(day);
+      const isSaving = savingDates.has(dayString);
       
       const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === day;
+      const isPastDate = new Date(year, month, day) < new Date(today.getFullYear(), today.getMonth(), today.getDate());
       
       days.push(
         <div 
           key={day} 
-          className={`relative p-2 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 rounded-lg shadow-md hover:bg-gray-200 dark:hover:bg-gray-700
-            ${isToday ? 'bg-blue-200 dark:bg-blue-600' : 'bg-gray-100 dark:bg-gray-800'}`
-          }
+          className={`relative p-3 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 rounded-lg shadow-md min-h-[80px] border-2
+            ${isToday ? 'bg-blue-100 border-blue-400 dark:bg-blue-900 dark:border-blue-500' : 
+              userIsAvailable ? 'bg-green-100 border-green-400 dark:bg-green-900 dark:border-green-500' :
+              'bg-gray-100 border-gray-300 dark:bg-gray-800 dark:border-gray-600'}
+            ${isPastDate ? 'opacity-60' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}
+            ${isSaving ? 'opacity-50' : ''}
+          `}
           onClick={() => handleOpenModal(day)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            handleDayTap(day);
-          }}
-          title="Left-click to view taps, right-click to add yours"
+          title={`${availableCount} people available. Click to view details.`}
         >
-          <span className="text-xl font-bold">{day}</span>
-          {tapCount > 0 && (
-            <span className="absolute top-1 right-1 text-xs font-semibold text-white bg-blue-500 rounded-full px-2 py-0.5">
-              {tapCount}
+          <span className="text-xl font-bold mb-1">{day}</span>
+          
+          {/* Availability count badge */}
+          {availableCount > 0 && (
+            <span className="text-xs font-semibold text-white bg-blue-500 rounded-full px-2 py-0.5 mb-1">
+              {availableCount}
             </span>
+          )}
+          
+          {/* User's availability indicator */}
+          {userIsAvailable && (
+            <div className="absolute top-1 right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white" title="You are available"></div>
+          )}
+          
+          {/* Loading indicator */}
+          {isSaving && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-20 rounded-lg">
+              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+            </div>
           )}
         </div>
       );
@@ -217,12 +274,12 @@ const App = () => {
   return (
     <div className="font-sans antialiased text-gray-800 dark:text-gray-100 bg-gray-50 dark:bg-gray-900 min-h-screen flex flex-col items-center p-4">
       
-      <div className="w-full max-w-4xl p-6 bg-white dark:bg-gray-800 rounded-2xl shadow-xl flex flex-col gap-6">
+      <div className="w-full max-w-6xl p-6 bg-white dark:bg-gray-800 rounded-2xl shadow-xl flex flex-col gap-6">
 
         {/* Header and User ID display */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pb-4 border-b border-gray-200 dark:border-gray-700">
           <h1 className="text-3xl font-extrabold text-center sm:text-left text-gray-900 dark:text-white">
-            Collaborative Calendar
+            Availability Calendar
           </h1>
           {userId && (
             <div className="text-sm font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 p-2 rounded-lg truncate w-full sm:w-auto text-center sm:text-right">
@@ -231,16 +288,27 @@ const App = () => {
           )}
         </div>
 
+        {/* Instructions */}
+        <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-lg border border-blue-200 dark:border-blue-700">
+          <h3 className="font-semibold text-blue-800 dark:text-blue-200 mb-2">How to use:</h3>
+          <ul className="text-sm text-blue-700 dark:text-blue-300 space-y-1">
+            <li>• Enter your name below and click on dates you're available</li>
+            <li>• Green dates show you're available, numbers show total people available</li>
+            <li>• Click any date to see who else is available</li>
+            <li>• Click your available dates again to remove your availability</li>
+          </ul>
+        </div>
+
         {/* User Name Input */}
         <div className="flex items-center gap-2">
           <label htmlFor="userName" className="font-semibold text-lg">Your Name:</label>
           <input
             id="userName"
             type="text"
-            className="flex-grow p-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700"
+            className="flex-grow p-3 border border-gray-300 dark:border-gray-600 rounded-lg shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700"
             value={userName}
             onChange={(e) => setUserName(e.target.value)}
-            placeholder="Enter your name to tap"
+            placeholder="Enter your name to mark availability"
           />
         </div>
         
@@ -248,49 +316,81 @@ const App = () => {
         <div className="flex justify-between items-center px-2">
           <button 
             onClick={handlePrevMonth}
-            className="p-2 bg-blue-500 text-white rounded-lg shadow-md hover:bg-blue-600 transition-colors duration-200"
+            className="p-3 bg-blue-500 text-white rounded-lg shadow-md hover:bg-blue-600 transition-colors duration-200 flex items-center gap-2"
           >
-            &#9664; Prev
+            ← Previous
           </button>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
             {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
           </h2>
           <button 
             onClick={handleNextMonth}
-            className="p-2 bg-blue-500 text-white rounded-lg shadow-md hover:bg-blue-600 transition-colors duration-200"
+            className="p-3 bg-blue-500 text-white rounded-lg shadow-md hover:bg-blue-600 transition-colors duration-200 flex items-center gap-2"
           >
-            Next &#9654;
+            Next →
           </button>
         </div>
 
         {/* Calendar Grid */}
-        <div className="grid grid-cols-7 gap-4 text-center">
+        <div className="grid grid-cols-7 gap-3 text-center">
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-            <div key={day} className="font-bold text-gray-500 dark:text-gray-400">{day}</div>
+            <div key={day} className="font-bold text-gray-500 dark:text-gray-400 py-2">{day}</div>
           ))}
           {renderCalendarDays()}
         </div>
 
       </div>
 
-      {/* Modal for displaying taps */}
+      {/* Modal for displaying availability */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-xl max-w-sm w-full">
-            <div className="flex justify-between items-center mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">People who tapped</h3>
-              <button onClick={handleCloseModal} className="text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 text-3xl leading-none">&times;</button>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-xl max-w-md w-full max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4 border-b border-gray-200 dark:border-gray-700 pb-3">
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
+                {currentDate.toLocaleString('default', { month: 'long' })} {selectedDate}
+              </h3>
+              <button 
+                onClick={handleCloseModal} 
+                className="text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 text-3xl leading-none"
+              >
+                ×
+              </button>
             </div>
-            {selectedDateTaps.length > 0 ? (
-              <ul className="list-disc pl-5 space-y-1">
-                {selectedDateTaps.map((tap, index) => (
-                  <li key={index} className="text-lg">
-                    {tap.name}
+            
+            {/* Toggle availability button */}
+            {userName.trim() && (
+              <div className="mb-4">
+                <button
+                  onClick={() => {
+                    toggleAvailability(selectedDate);
+                    handleCloseModal();
+                  }}
+                  className={`w-full p-3 rounded-lg font-semibold transition-colors duration-200 ${
+                    isUserAvailable(selectedDate)
+                      ? 'bg-red-500 hover:bg-red-600 text-white'
+                      : 'bg-green-500 hover:bg-green-600 text-white'
+                  }`}
+                >
+                  {isUserAvailable(selectedDate) ? 'Remove My Availability' : 'Mark Me as Available'}
+                </button>
+              </div>
+            )}
+            
+            <h4 className="font-semibold text-lg mb-3 text-gray-900 dark:text-white">
+              Available People ({selectedDateAvailability.length}):
+            </h4>
+            
+            {selectedDateAvailability.length > 0 ? (
+              <ul className="space-y-2">
+                {selectedDateAvailability.map((person, index) => (
+                  <li key={index} className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                    <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                    <span className="text-lg">{person.name}</span>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-gray-500">No one has tapped this day yet.</p>
+              <p className="text-gray-500 text-center py-4">No one is available on this date yet.</p>
             )}
           </div>
         </div>
