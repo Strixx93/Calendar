@@ -102,6 +102,7 @@ const App = () => {
     }
     
     const dayString = `${currentDate.getFullYear()}-${currentDate.getMonth() + 1}-${day}`;
+    const calendarDocRef = doc(db, `/artifacts/${APP_ID}/public/data/calendars`, userId);
     
     // Add to saving state
     setSavingDates(prev => new Set([...prev, dayString]));
@@ -120,6 +121,7 @@ const App = () => {
       if (userIndex >= 0) {
         // User is already available, remove them
         newAvailability = currentAvailability.filter((_, index) => index !== userIndex);
+        console.log(`Removing ${userName} from ${dayString}. New count: ${newAvailability.length}`);
       } else {
         // User is not available, add them
         newAvailability = [...currentAvailability, { 
@@ -127,6 +129,7 @@ const App = () => {
           userId: auth.currentUser.uid,
           addedAt: new Date().toISOString()
         }];
+        console.log(`Adding ${userName} to ${dayString}. New count: ${newAvailability.length}`);
       }
       
       // Update the document with the new availability data for the specific day
@@ -136,6 +139,8 @@ const App = () => {
             availability: newAvailability,
         }
       }, { merge: true });
+      
+      console.log("Successfully updated availability in Firestore");
 
     } catch (error) {
       console.error("Error updating document:", error);
@@ -154,6 +159,11 @@ const App = () => {
   const handleOpenModal = (day) => {
     const dayString = `${currentDate.getFullYear()}-${currentDate.getMonth() + 1}-${day}`;
     const availability = (calendarData[dayString]?.availability || []);
+    
+    console.log("Opening modal for:", dayString);
+    console.log("Calendar data for this date:", calendarData[dayString]);
+    console.log("Availability array:", availability);
+    
     setSelectedDate(day);
     setSelectedDateAvailability(availability);
     setShowModal(true);
