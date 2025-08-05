@@ -154,7 +154,7 @@ function App() {
     } catch (error) {
       console.error("Error signing out:", error);
     }
-  };
+  }; 
 
   // Go to previous month
   const prevMonth = () => {
