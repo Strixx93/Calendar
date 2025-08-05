@@ -1,29 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
-import { getFirestore, doc, setDoc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
-// Define the available voices for multi-speaker TTS if needed
-const VOICES = {
-  Joe: "Kore",
-  Jane: "Puck"
-};
-
-const App = () => {
-  // Global variables provided by the Canvas environment
-  // Global variables provided by the Canvas environment
-  const appId = 'your-unique-app-id'; // Use your own string
-  const firebaseConfig = {
+// Define the Firebase configuration
+const FIREBASE_CONFIG = {
     apiKey: "AIzaSyBBOpAC4GH531hVexJHKWK7LqAWSaj6Uqc",
     authDomain: "calendar-f064a.firebaseapp.com",
     projectId: "calendar-f064a",
     storageBucket: "calendar-f064a.firebasestorage.app",
     messagingSenderId: "904299594",
     appId: "1:904299594:web:26a395a6d4a73f635792b3"
-  };
-const initialAuthToken = null; // We won't use this for local development
+};
 
-  // State variables for the app
+// Define a static app ID for your deployed app
+const APP_ID = 'calendar_app_strixx';
+
+const App = () => {
   const [userName, setUserName] = useState('');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [calendarData, setCalendarData] = useState({});
@@ -32,12 +25,17 @@ const initialAuthToken = null; // We won't use this for local development
   const [db, setDb] = useState(null);
   const [auth, setAuth] = useState(null);
   const [userId, setUserId] = useState(null);
-  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Initialize Firebase and handle authentication
   useEffect(() => {
+    // We're using a single, static config for deployment
+    const firebaseConfig = FIREBASE_CONFIG;
+    const appId = APP_ID;
+    
     if (Object.keys(firebaseConfig).length === 0) {
       console.error("Firebase config is missing. Please provide it.");
+      setIsLoading(false);
       return;
     }
 
@@ -48,11 +46,11 @@ const initialAuthToken = null; // We won't use this for local development
     setDb(firestoreDb);
     setAuth(firebaseAuth);
 
+    // This listener will handle both initial sign-in and state changes
     const unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
       if (user) {
         setUserId(user.uid);
       } else {
-        // Sign in anonymously if no token is available or user is signed out
         console.log("Signing in anonymously...");
         try {
           await signInAnonymously(firebaseAuth);
@@ -60,41 +58,22 @@ const initialAuthToken = null; // We won't use this for local development
           console.error("Failed to sign in anonymously:", error);
         }
       }
-      setIsAuthReady(true);
+      setIsLoading(false);
     });
 
     // Clean up the auth listener
     return () => unsubscribe();
-  }, [firebaseConfig]);
-
-  // Use the initial auth token if it exists
-  useEffect(() => {
-    const signInWithToken = async () => {
-      if (auth && initialAuthToken) {
-        console.log("Signing in with custom token...");
-        try {
-          await signInWithCustomToken(auth, initialAuthToken);
-        } catch (error) {
-          console.error("Custom token sign-in failed:", error);
-        }
-      }
-    };
-    signInWithToken();
-  }, [auth, initialAuthToken]);
+  }, []); // Empty dependency array means this runs once on mount
 
   // Set up Firestore real-time listener for the calendar data
   useEffect(() => {
     if (!db || !userId) return;
 
-    const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-    const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
-
     // The document ID for the public calendar is the userId
     // This allows different users to have separate shared calendars
-    const calendarDocRef = doc(db, `/artifacts/${appId}/public/data/calendars`, userId);
+    const calendarDocRef = doc(db, `/artifacts/${APP_ID}/public/data/calendars`, userId);
     
     // We are listening to a single document which will hold the entire month's data
-    // This is more efficient than listening to a collection of days
     const unsubscribe = onSnapshot(calendarDocRef, (docSnap) => {
         if (docSnap.exists()) {
             setCalendarData(docSnap.data());
@@ -105,9 +84,9 @@ const initialAuthToken = null; // We won't use this for local development
         console.error("Error fetching calendar data:", error);
     });
 
-    // Clean up the listener on component unmount or dependency change
+    // Clean up the listener
     return () => unsubscribe();
-  }, [db, userId, currentDate, appId]);
+  }, [db, userId]);
 
   // Function to handle a user tapping on a day
   const handleDayTap = async (day) => {
@@ -121,7 +100,7 @@ const initialAuthToken = null; // We won't use this for local development
     }
     
     const dayString = `${currentDate.getFullYear()}-${currentDate.getMonth() + 1}-${day}`;
-    const calendarDocRef = doc(db, `/artifacts/${appId}/public/data/calendars`, userId);
+    const calendarDocRef = doc(db, `/artifacts/${APP_ID}/public/data/calendars`, userId);
 
     try {
       // Get the current state of the document
@@ -164,6 +143,7 @@ const initialAuthToken = null; // We won't use this for local development
 
   // Utility function to get the first day of the month
   const getFirstDayOfMonth = (year, month) => {
+    // getDay() returns 0 for Sunday, 1 for Monday, etc.
     return new Date(year, month, 1).getDay();
   };
 
@@ -226,8 +206,7 @@ const initialAuthToken = null; // We won't use this for local development
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
   };
   
-  // Render loading state if Firebase is not ready
-  if (!isAuthReady) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-100">
         <div className="text-2xl">Loading...</div>
@@ -245,9 +224,11 @@ const initialAuthToken = null; // We won't use this for local development
           <h1 className="text-3xl font-extrabold text-center sm:text-left text-gray-900 dark:text-white">
             Collaborative Calendar
           </h1>
-          <div className="text-sm font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 p-2 rounded-lg truncate w-full sm:w-auto text-center sm:text-right">
-            Share this ID: <span className="font-bold text-blue-600 dark:text-blue-400">{userId}</span>
-          </div>
+          {userId && (
+            <div className="text-sm font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 p-2 rounded-lg truncate w-full sm:w-auto text-center sm:text-right">
+              Share this ID: <span className="font-bold text-blue-600 dark:text-blue-400">{userId}</span>
+            </div>
+          )}
         </div>
 
         {/* User Name Input */}
