@@ -1,28 +1,24 @@
 import { useState, useEffect } from 'react';
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, query, where } from "firebase/firestore";
-import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from "firebase/auth";
+import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot } from "firebase/firestore";
+import { 
+  getAuth, 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword,
+  onAuthStateChanged, 
+  signOut 
+} from "firebase/auth";
 import './App.css';
 
 // Replace with your Firebase config
 const firebaseConfig = {
-
-  apiKey: "AIzaSyBBOpAC4GH531hVexJHKWK7LqAWSaj6Uqc",
-
-  authDomain: "calendar-f064a.firebaseapp.com",
-
-  projectId: "calendar-f064a",
-
-  storageBucket: "calendar-f064a.firebasestorage.app",
-
-  messagingSenderId: "904299594",
-
-  appId: "1:904299594:web:26a395a6d4a73f635792b3",
-
-  measurementId: "G-7RXFJ1V686"
-
+  apiKey: "YOUR_API_KEY",
+  authDomain: "your-project.firebaseapp.com",
+  projectId: "your-project",
+  storageBucket: "your-project.appspot.com",
+  messagingSenderId: "YOUR_MESSAGING_ID",
+  appId: "YOUR_APP_ID"
 };
-
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -30,12 +26,23 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 
 function App() {
+  // Calendar state
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(null);
   const [calendarData, setCalendarData] = useState({});
-  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  
+  // Authentication state
+  const [user, setUser] = useState(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [showAuth, setShowAuth] = useState(true);
+  const [authMode, setAuthMode] = useState('login'); // 'login' or 'register'
+  
+  // Form state
   const [userName, setUserName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authError, setAuthError] = useState("");
   
   // Format date to YYYY-MM-DD
   const formatDate = (date) => {
@@ -47,70 +54,199 @@ function App() {
     return new Date(year, month + 1, 0).getDate();
   };
   
-  // Auto-authenticate anonymously
+  // Handle user authentication state
   useEffect(() => {
+    console.log("Setting up authentication listener");
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         console.log("User is signed in:", user.uid);
         setUser(user);
-        setUserName(user.displayName || `User_${user.uid.slice(0, 5)}`);
+        setIsLoggedIn(true);
+        setShowAuth(false);
+        
+        // Fetch user profile
+        getUserProfile(user.uid);
       } else {
-        console.log("No user, signing in anonymously...");
-        signInAnonymously(auth);
+        console.log("No user signed in");
+        setUser(null);
+        setIsLoggedIn(false);
+        setLoading(false);
       }
     });
     
     return () => unsubscribe();
   }, []);
   
+  // Get user profile from Firestore
+  const getUserProfile = async (userId) => {
+    try {
+      const userRef = doc(db, "users", userId);
+      const docSnap = await getDoc(userRef);
+      
+      if (docSnap.exists()) {
+        const userData = docSnap.data();
+        setUserName(userData.displayName || "");
+        console.log("User profile loaded:", userData.displayName);
+      } else {
+        console.log("No user profile found");
+      }
+    } catch (error) {
+      console.error("Error fetching user profile:", error);
+    }
+  };
+  
   // Subscribe to calendar data for current month
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      console.log("No user yet, skipping calendar data subscription");
+      return;
+    }
     
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
+    
+    console.log(`Setting up listener for month: ${month + 1}/${year}`);
     
     // Format date range for current month
     const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
     const lastDay = getDaysInMonth(year, month);
     const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${lastDay}`;
     
-    console.log(`Fetching availability from ${startDate} to ${endDate}`);
+    console.log(`Watching for availability from ${startDate} to ${endDate}`);
     
     const availabilityRef = collection(db, "availability");
     
-    const unsubscribe = onSnapshot(availabilityRef, (snapshot) => {
-      const data = {};
-      snapshot.forEach(doc => {
-        const dateId = doc.id;
-        // Only include dates within our range
-        if (dateId >= startDate && dateId <= endDate) {
-          data[dateId] = doc.data().users || {};
+    try {
+      const unsubscribe = onSnapshot(
+        availabilityRef, 
+        (snapshot) => {
+          console.log(`Got snapshot with ${snapshot.size} documents`);
+          
+          const newData = { ...calendarData };
+          
+          snapshot.docChanges().forEach((change) => {
+            const dateId = change.doc.id;
+            console.log(`Document ${dateId} ${change.type}`);
+            
+            if (dateId >= startDate && dateId <= endDate) {
+              if (change.type === "removed") {
+                delete newData[dateId];
+              } else {
+                newData[dateId] = change.doc.data().users || {};
+              }
+            }
+          });
+          
+          console.log("Updated calendar data:", newData);
+          setCalendarData(newData);
+          setLoading(false);
+        },
+        (error) => {
+          console.error("Error in snapshot listener:", error);
+          setLoading(false);
         }
+      );
+      
+      return () => {
+        console.log("Cleaning up calendar data listener");
+        unsubscribe();
+      };
+    } catch (error) {
+      console.error("Failed to set up snapshot listener:", error);
+      setLoading(false);
+    }
+  }, [currentDate, user]);
+  
+  // Register new user
+  const registerUser = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    
+    if (!email || !password || !userName) {
+      setAuthError("Please fill in all fields");
+      return;
+    }
+    
+    try {
+      // Create account with email/password
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const newUser = userCredential.user;
+      
+      // Store user profile in Firestore
+      await setDoc(doc(db, "users", newUser.uid), {
+        uid: newUser.uid,
+        email: email,
+        displayName: userName,
+        createdAt: new Date().toISOString()
       });
       
-      setCalendarData(data);
-      setLoading(false);
-      console.log("Calendar data updated:", data);
-    });
+      console.log("User registered successfully:", newUser.uid);
+      setEmail("");
+      setPassword("");
+    } catch (error) {
+      console.error("Error registering user:", error);
+      setAuthError(error.message);
+    }
+  };
+  
+  // Login existing user
+  const loginUser = async (e) => {
+    e.preventDefault();
+    setAuthError("");
     
-    return () => unsubscribe();
-  }, [currentDate, user]);
+    if (!email || !password) {
+      setAuthError("Please enter both email and password");
+      return;
+    }
+    
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      console.log("User logged in successfully");
+      setEmail("");
+      setPassword("");
+    } catch (error) {
+      console.error("Error logging in:", error);
+      setAuthError(error.message);
+    }
+  };
+  
+  // Logout user
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+      console.log("User signed out");
+      setShowAuth(true);
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
+  };
   
   // Toggle availability for a date
   const toggleAvailability = async (date) => {
-    if (!user) return;
+    if (!user) {
+      setShowAuth(true);
+      return;
+    }
     
     const dateStr = formatDate(date);
-    const dateRef = doc(db, "availability", dateStr);
+    console.log(`Toggling availability for ${dateStr}`);
     
     try {
-      // Get current data
-      const docSnap = await getDoc(dateRef);
-      const dateData = docSnap.exists() ? docSnap.data() : { users: {} };
+      const dateRef = doc(db, "availability", dateStr);
       
-      // Toggle availability
-      const isCurrentlyAvailable = dateData.users[user.uid]?.isAvailable === true;
+      const docSnap = await getDoc(dateRef);
+      
+      let dateData = { users: {} };
+      if (docSnap.exists()) {
+        dateData = docSnap.data();
+        if (!dateData.users) dateData.users = {};
+      }
+      
+      const currentUserData = dateData.users[user.uid];
+      const isCurrentlyAvailable = currentUserData?.isAvailable === true;
+      
+      console.log(`Current availability: ${isCurrentlyAvailable}`);
+      
       dateData.users[user.uid] = {
         userId: user.uid,
         userName: userName,
@@ -118,54 +254,68 @@ function App() {
         updatedAt: new Date().toISOString()
       };
       
-      // Save to Firestore
+      console.log("Saving to Firestore:", dateData);
       await setDoc(dateRef, dateData);
-      console.log(`Availability for ${dateStr} toggled successfully`);
+      
+      console.log("Availability toggled successfully");
     } catch (error) {
       console.error("Error toggling availability:", error);
+      alert("Failed to update availability. See console for details.");
     }
   };
-
+  
   // Update user name
-  const updateUserName = () => {
+  const updateUserName = async () => {
     if (!user || !userName.trim()) return;
     
-    // Update any existing availability entries
-    Object.keys(calendarData).forEach(async (dateStr) => {
-      if (calendarData[dateStr][user.uid]) {
-        const dateRef = doc(db, "availability", dateStr);
-        const docSnap = await getDoc(dateRef);
+    console.log(`Updating user name to: ${userName}`);
+    
+    try {
+      // Update user profile in Firestore
+      const userRef = doc(db, "users", user.uid);
+      await setDoc(userRef, { displayName: userName }, { merge: true });
+      
+      // Update username in all calendar entries
+      for (const dateStr in calendarData) {
+        const dateData = calendarData[dateStr];
         
-        if (docSnap.exists()) {
-          const dateData = docSnap.data();
-          if (dateData.users[user.uid]) {
-            dateData.users[user.uid].userName = userName;
-            await setDoc(dateRef, dateData);
+        if (dateData[user.uid]) {
+          try {
+            const dateRef = doc(db, "availability", dateStr);
+            const docSnap = await getDoc(dateRef);
+            
+            if (docSnap.exists()) {
+              const updatedData = docSnap.data();
+              
+              if (updatedData.users && updatedData.users[user.uid]) {
+                updatedData.users[user.uid].userName = userName;
+                await setDoc(dateRef, updatedData);
+                console.log(`Updated name in date: ${dateStr}`);
+              }
+            }
+          } catch (error) {
+            console.error(`Error updating name for date ${dateStr}:`, error);
           }
         }
       }
-    });
-  };
-
-  // Sign out current user
-  const handleSignOut = async () => {
-    try {
-      await signOut(auth);
+      
+      alert("Name updated successfully!");
     } catch (error) {
-      console.error("Error signing out:", error);
+      console.error("Error updating user name:", error);
+      alert("Failed to update name. See console for details.");
     }
-  }; 
-
+  };
+  
   // Go to previous month
   const prevMonth = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   };
-
+  
   // Go to next month
   const nextMonth = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
   };
-
+  
   // Generate calendar grid
   const generateCalendar = () => {
     const year = currentDate.getFullYear();
@@ -223,7 +373,7 @@ function App() {
     
     return calendar;
   };
-
+  
   // Show details for selected date
   const renderSelectedDateDetails = () => {
     if (!selectedDate) return null;
@@ -274,12 +424,113 @@ function App() {
       </div>
     );
   };
+  
+  // Render authentication forms
+  const renderAuthForms = () => {
+    if (!showAuth) return null;
+    
+    return (
+      <div className="auth-overlay">
+        <div className="auth-container">
+          <div className="auth-tabs">
+            <button 
+              className={authMode === 'login' ? 'active' : ''} 
+              onClick={() => setAuthMode('login')}
+            >
+              Login
+            </button>
+            <button 
+              className={authMode === 'register' ? 'active' : ''} 
+              onClick={() => setAuthMode('register')}
+            >
+              Register
+            </button>
+            <button 
+              className="close-button"
+              onClick={() => setShowAuth(false)}
+            >
+              ✕
+            </button>
+          </div>
+          
+          {authError && <div className="auth-error">{authError}</div>}
+          
+          {authMode === 'login' ? (
+            <form onSubmit={loginUser} className="auth-form">
+              <h2>Login</h2>
+              <div className="form-group">
+                <label htmlFor="email">Email</label>
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your email"
+                />
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="password">Password</label>
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter your password"
+                />
+              </div>
+              
+              <button type="submit" className="auth-button">Login</button>
+            </form>
+          ) : (
+            <form onSubmit={registerUser} className="auth-form">
+              <h2>Register</h2>
+              <div className="form-group">
+                <label htmlFor="reg-name">Name</label>
+                <input
+                  id="reg-name"
+                  type="text"
+                  value={userName}
+                  onChange={(e) => setUserName(e.target.value)}
+                  placeholder="Enter your name"
+                />
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="reg-email">Email</label>
+                <input
+                  id="reg-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your email"
+                />
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="reg-password">Password</label>
+                <input
+                  id="reg-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Create a password"
+                />
+              </div>
+              
+              <button type="submit" className="auth-button">Register</button>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="app">
       <header>
         <h1>Group Availability Calendar</h1>
-        {user && (
+        {isLoggedIn ? (
           <div className="user-controls">
             <input 
               type="text" 
@@ -290,14 +541,27 @@ function App() {
             <button onClick={updateUserName}>Update Name</button>
             <button onClick={handleSignOut}>Sign Out</button>
           </div>
+        ) : (
+          <button onClick={() => setShowAuth(true)} className="login-button">
+            Login / Register
+          </button>
         )}
       </header>
       
       <main>
-        {loading ? (
-          <div className="loading">Loading calendar data...</div>
+        {loading && isLoggedIn ? (
+          <div className="loading">
+            <p>Loading calendar data...</p>
+            <p><small>This may take a moment if this is your first time using the app.</small></p>
+          </div>
         ) : (
           <>
+            {!isLoggedIn && !showAuth && (
+              <div className="login-prompt">
+                <p>Please <button onClick={() => setShowAuth(true)}>login or register</button> to interact with the calendar.</p>
+              </div>
+            )}
+            
             <div className="calendar">
               <div className="calendar-header">
                 <button onClick={prevMonth}>&lt; Prev</button>
@@ -318,15 +582,17 @@ function App() {
               </div>
             </div>
             
-            {renderSelectedDateDetails()}
+            {isLoggedIn && renderSelectedDateDetails()}
           </>
         )}
       </main>
       
+      {renderAuthForms()}
+      
       <footer>
         <p>
           Made with Firebase & React • 
-          {user ? `Signed in as ${userName}` : 'Connecting...'}
+          {isLoggedIn ? `Signed in as ${userName}` : 'Not signed in'}
         </p>
       </footer>
     </div>
