@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, query, where, getDocs } from "firebase/firestore";
 import { 
   getAuth, 
   createUserWithEmailAndPassword, 
@@ -12,23 +12,13 @@ import './App.css';
 
 // Replace with your Firebase config
 const firebaseConfig = {
-
-  apiKey: "AIzaSyBBOpAC4GH531hVexJHKWK7LqAWSaj6Uqc",
-
-  authDomain: "calendar-f064a.firebaseapp.com",
-
-  projectId: "calendar-f064a",
-
-  storageBucket: "calendar-f064a.firebasestorage.app",
-
-  messagingSenderId: "904299594",
-
-  appId: "1:904299594:web:26a395a6d4a73f635792b3",
-
-  measurementId: "G-7RXFJ1V686"
-
+  apiKey: "YOUR_ACTUAL_API_KEY",
+  authDomain: "your-project.firebaseapp.com",
+  projectId: "your-project",
+  storageBucket: "your-project.appspot.com",
+  messagingSenderId: "YOUR_MESSAGING_ID",
+  appId: "YOUR_APP_ID"
 };
-
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -42,6 +32,13 @@ function App() {
   const [calendarData, setCalendarData] = useState({});
   const [loading, setLoading] = useState(true);
   
+  // Dark mode state
+  const [darkMode, setDarkMode] = useState(() => {
+    // Get initial state from localStorage or default to false (light mode)
+    const savedMode = localStorage.getItem('darkMode');
+    return savedMode ? JSON.parse(savedMode) : false;
+  });
+  
   // Authentication state
   const [user, setUser] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -50,9 +47,23 @@ function App() {
   
   // Form state
   const [userName, setUserName] = useState("");
+  const [originalUserName, setOriginalUserName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
+  const [isNameChecking, setIsNameChecking] = useState(false);
+  const [isNameAvailable, setIsNameAvailable] = useState(true);
+  
+  // Apply dark mode to the document
+  useEffect(() => {
+    if (darkMode) {
+      document.body.classList.add('dark-mode');
+    } else {
+      document.body.classList.remove('dark-mode');
+    }
+    // Save preference to localStorage
+    localStorage.setItem('darkMode', JSON.stringify(darkMode));
+  }, [darkMode]);
   
   // Format date to YYYY-MM-DD
   const formatDate = (date) => {
@@ -63,6 +74,55 @@ function App() {
   const getDaysInMonth = (year, month) => {
     return new Date(year, month + 1, 0).getDate();
   };
+  
+  // Toggle dark mode
+  const toggleDarkMode = () => {
+    setDarkMode(prevMode => !prevMode);
+  };
+  
+  // Check if username is available
+  const checkUsernameAvailability = async (name, excludeUid = null) => {
+    if (!name.trim()) return true; // Empty names are "available" but will be caught by validation
+    
+    setIsNameChecking(true);
+    
+    try {
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("displayName", "==", name.trim()));
+      const snapshot = await getDocs(q);
+      
+      let isAvailable = true;
+      
+      // If we found any users with this name, check if it's our own account
+      if (!snapshot.empty) {
+        snapshot.forEach((doc) => {
+          // If this is a different user with the same name
+          if (doc.id !== excludeUid) {
+            isAvailable = false;
+          }
+        });
+      }
+      
+      setIsNameAvailable(isAvailable);
+      setIsNameChecking(false);
+      return isAvailable;
+    } catch (error) {
+      console.error("Error checking username:", error);
+      setIsNameChecking(false);
+      return false;
+    }
+  };
+  
+  // Handle username change with debounce
+  useEffect(() => {
+    if (userName !== originalUserName && authMode === 'register') {
+      const timeoutId = setTimeout(() => {
+        checkUsernameAvailability(userName);
+      }, 500);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [userName, authMode, originalUserName]);
   
   // Handle user authentication state
   useEffect(() => {
@@ -96,6 +156,13 @@ function App() {
       if (docSnap.exists()) {
         const userData = docSnap.data();
         setUserName(userData.displayName || "");
+        setOriginalUserName(userData.displayName || "");
+        
+        // Load user's dark mode preference if it exists
+        if (userData.darkMode !== undefined) {
+          setDarkMode(userData.darkMode);
+        }
+        
         console.log("User profile loaded:", userData.displayName);
       } else {
         console.log("No user profile found");
@@ -105,7 +172,7 @@ function App() {
     }
   };
   
-  // Subscribe to calendar data for current month
+  // Subscribe to calendar data for current month with improved real-time updates
   useEffect(() => {
     if (!user) {
       console.log("No user yet, skipping calendar data subscription");
@@ -129,25 +196,22 @@ function App() {
     try {
       const unsubscribe = onSnapshot(
         availabilityRef, 
+        { includeMetadataChanges: true }, // This helps with more responsive updates
         (snapshot) => {
-          console.log(`Got snapshot with ${snapshot.size} documents`);
+          console.log(`Got snapshot with ${snapshot.size} documents, fromCache: ${snapshot.metadata.fromCache}`);
           
-          const newData = { ...calendarData };
+          // Process all documents in the collection
+          const newData = {};
           
-          snapshot.docChanges().forEach((change) => {
-            const dateId = change.doc.id;
-            console.log(`Document ${dateId} ${change.type}`);
-            
+          snapshot.forEach((doc) => {
+            const dateId = doc.id;
+            // Only include dates within our range
             if (dateId >= startDate && dateId <= endDate) {
-              if (change.type === "removed") {
-                delete newData[dateId];
-              } else {
-                newData[dateId] = change.doc.data().users || {};
-              }
+              newData[dateId] = doc.data().users || {};
             }
           });
           
-          console.log("Updated calendar data:", newData);
+          console.log("Updated calendar data with new snapshot");
           setCalendarData(newData);
           setLoading(false);
         },
@@ -172,8 +236,18 @@ function App() {
     e.preventDefault();
     setAuthError("");
     
-    if (!email || !password || !userName) {
+    if (!email || !password || !userName.trim()) {
       setAuthError("Please fill in all fields");
+      return;
+    }
+    
+    // Check for username availability
+    setIsNameChecking(true);
+    const isAvailable = await checkUsernameAvailability(userName);
+    setIsNameChecking(false);
+    
+    if (!isAvailable) {
+      setAuthError("This username is already taken. Please choose another.");
       return;
     }
     
@@ -186,13 +260,15 @@ function App() {
       await setDoc(doc(db, "users", newUser.uid), {
         uid: newUser.uid,
         email: email,
-        displayName: userName,
-        createdAt: new Date().toISOString()
+        displayName: userName.trim(),
+        createdAt: new Date().toISOString(),
+        darkMode: darkMode // Save user's dark mode preference
       });
       
       console.log("User registered successfully:", newUser.uid);
       setEmail("");
       setPassword("");
+      setOriginalUserName(userName);
     } catch (error) {
       console.error("Error registering user:", error);
       setAuthError(error.message);
@@ -268,6 +344,24 @@ function App() {
       await setDoc(dateRef, dateData);
       
       console.log("Availability toggled successfully");
+      
+      // Optimistic update for immediate feedback
+      setCalendarData(prev => {
+        const updated = {...prev};
+        if (!updated[dateStr]) updated[dateStr] = {};
+        
+        updated[dateStr] = {
+          ...updated[dateStr],
+          [user.uid]: {
+            userId: user.uid,
+            userName: userName,
+            isAvailable: !isCurrentlyAvailable,
+            updatedAt: new Date().toISOString()
+          }
+        };
+        
+        return updated;
+      });
     } catch (error) {
       console.error("Error toggling availability:", error);
       alert("Failed to update availability. See console for details.");
@@ -278,12 +372,28 @@ function App() {
   const updateUserName = async () => {
     if (!user || !userName.trim()) return;
     
+    if (userName === originalUserName) {
+      console.log("Name unchanged, skipping update");
+      return;
+    }
+    
     console.log(`Updating user name to: ${userName}`);
+    
+    // Check if username is already taken
+    setIsNameChecking(true);
+    const isAvailable = await checkUsernameAvailability(userName, user.uid);
+    setIsNameChecking(false);
+    
+    if (!isAvailable) {
+      alert("This username is already taken. Please choose another.");
+      setUserName(originalUserName);
+      return;
+    }
     
     try {
       // Update user profile in Firestore
       const userRef = doc(db, "users", user.uid);
-      await setDoc(userRef, { displayName: userName }, { merge: true });
+      await setDoc(userRef, { displayName: userName.trim() }, { merge: true });
       
       // Update username in all calendar entries
       for (const dateStr in calendarData) {
@@ -298,7 +408,7 @@ function App() {
               const updatedData = docSnap.data();
               
               if (updatedData.users && updatedData.users[user.uid]) {
-                updatedData.users[user.uid].userName = userName;
+                updatedData.users[user.uid].userName = userName.trim();
                 await setDoc(dateRef, updatedData);
                 console.log(`Updated name in date: ${dateStr}`);
               }
@@ -309,12 +419,33 @@ function App() {
         }
       }
       
+      setOriginalUserName(userName.trim());
       alert("Name updated successfully!");
     } catch (error) {
       console.error("Error updating user name:", error);
       alert("Failed to update name. See console for details.");
     }
   };
+  
+  // Save dark mode preference to user profile
+  const saveDarkModePreference = async () => {
+    if (!user) return;
+    
+    try {
+      const userRef = doc(db, "users", user.uid);
+      await setDoc(userRef, { darkMode: darkMode }, { merge: true });
+      console.log("Dark mode preference saved");
+    } catch (error) {
+      console.error("Error saving dark mode preference:", error);
+    }
+  };
+  
+  // Save dark mode preference when it changes
+  useEffect(() => {
+    if (user) {
+      saveDarkModePreference();
+    }
+  }, [darkMode, user]);
   
   // Go to previous month
   const prevMonth = () => {
@@ -435,6 +566,24 @@ function App() {
     );
   };
   
+  // Dark mode toggle switch component
+  const DarkModeToggle = () => {
+    return (
+      <div className="dark-mode-toggle">
+        <span className="toggle-icon light">☀️</span>
+        <label className="switch">
+          <input 
+            type="checkbox" 
+            checked={darkMode} 
+            onChange={toggleDarkMode}
+          />
+          <span className="slider round"></span>
+        </label>
+        <span className="toggle-icon dark">🌙</span>
+      </div>
+    );
+  };
+  
   // Render authentication forms
   const renderAuthForms = () => {
     if (!showAuth) return null;
@@ -451,7 +600,10 @@ function App() {
             </button>
             <button 
               className={authMode === 'register' ? 'active' : ''} 
-              onClick={() => setAuthMode('register')}
+              onClick={() => {
+                setAuthMode('register');
+                setIsNameAvailable(true); // Reset name check on tab change
+              }}
             >
               Register
             </button>
@@ -463,99 +615,144 @@ function App() {
             </button>
           </div>
           
-          {authError && <div className="auth-error">{authError}</div>}
-          
-          {authMode === 'login' ? (
-            <form onSubmit={loginUser} className="auth-form">
-              <h2>Login</h2>
-              <div className="form-group">
-                <label htmlFor="email">Email</label>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Enter your email"
-                />
-              </div>
-              
-              <div className="form-group">
-                <label htmlFor="password">Password</label>
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
-                />
-              </div>
-              
-              <button type="submit" className="auth-button">Login</button>
-            </form>
-          ) : (
-            <form onSubmit={registerUser} className="auth-form">
-              <h2>Register</h2>
-              <div className="form-group">
-                <label htmlFor="reg-name">Name</label>
-                <input
-                  id="reg-name"
-                  type="text"
-                  value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                  placeholder="Enter your name"
-                />
-              </div>
-              
-              <div className="form-group">
-                <label htmlFor="reg-email">Email</label>
-                <input
-                  id="reg-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Enter your email"
-                />
-              </div>
-              
-              <div className="form-group">
-                <label htmlFor="reg-password">Password</label>
-                <input
-                  id="reg-password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Create a password"
-                />
-              </div>
-              
-              <button type="submit" className="auth-button">Register</button>
-            </form>
-          )}
+          <div className="auth-form-container">
+            {authError && <div className="auth-error">{authError}</div>}
+            
+            {authMode === 'login' ? (
+              <form onSubmit={loginUser} className="auth-form">
+                <h2>Login</h2>
+                <div className="form-group">
+                  <label htmlFor="email">Email</label>
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Enter your email"
+                  />
+                </div>
+                
+                <div className="form-group">
+                  <label htmlFor="password">Password</label>
+                  <input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
+                  />
+                </div>
+                
+                <button type="submit" className="auth-button">Login</button>
+              </form>
+            ) : (
+              <form onSubmit={registerUser} className="auth-form">
+                <h2>Register</h2>
+                <div className="form-group">
+                  <label htmlFor="reg-name">
+                    Username
+                    {isNameChecking && <span className="checking-name"> (checking...)</span>}
+                  </label>
+                  <input
+                    id="reg-name"
+                    type="text"
+                    value={userName}
+                    onChange={(e) => setUserName(e.target.value)}
+                    placeholder="Choose a unique username"
+                    className={!isNameAvailable ? 'input-error' : ''}
+                  />
+                  {!isNameAvailable && (
+                    <div className="input-error-message">
+                      Username is already taken
+                    </div>
+                  )}
+                </div>
+                
+                <div className="form-group">
+                  <label htmlFor="reg-email">Email</label>
+                  <input
+                    id="reg-email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Enter your email"
+                  />
+                </div>
+                
+                <div className="form-group">
+                  <label htmlFor="reg-password">Password</label>
+                  <input
+                    id="reg-password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Create a password"
+                  />
+                </div>
+                
+                <div className="form-group preference-group">
+                  <label>Display Mode</label>
+                  <DarkModeToggle />
+                </div>
+                
+                <button 
+                  type="submit" 
+                  className="auth-button"
+                  disabled={isNameChecking || !isNameAvailable}
+                >
+                  Register
+                </button>
+              </form>
+            )}
+          </div>
         </div>
       </div>
     );
   };
 
   return (
-    <div className="app">
+    <div className={`app ${darkMode ? 'dark-mode' : 'light-mode'}`}>
       <header>
         <h1>Group Availability Calendar</h1>
-        {isLoggedIn ? (
-          <div className="user-controls">
-            <input 
-              type="text" 
-              value={userName} 
-              onChange={(e) => setUserName(e.target.value)} 
-              placeholder="Your name" 
-            />
-            <button onClick={updateUserName}>Update Name</button>
-            <button onClick={handleSignOut}>Sign Out</button>
-          </div>
-        ) : (
-          <button onClick={() => setShowAuth(true)} className="login-button">
-            Login / Register
-          </button>
-        )}
+        <div className="header-controls">
+          <DarkModeToggle />
+          
+          {isLoggedIn ? (
+            <div className="user-controls">
+              <div className="username-field">
+                <input 
+                  type="text" 
+                  value={userName} 
+                  onChange={(e) => setUserName(e.target.value)}
+                  placeholder="Your name" 
+                  className={!isNameAvailable ? 'input-error' : ''}
+                />
+                {userName !== originalUserName && (
+                  <div className="name-status">
+                    {isNameChecking ? (
+                      <span className="checking">Checking...</span>
+                    ) : !isNameAvailable ? (
+                      <span className="taken">Username already taken</span>
+                    ) : (
+                      <span className="available">Username available</span>
+                    )}
+                  </div>
+                )}
+              </div>
+              <button 
+                onClick={updateUserName}
+                disabled={userName === originalUserName || isNameChecking || !isNameAvailable}
+              >
+                Update Name
+              </button>
+              <button onClick={handleSignOut}>Sign Out</button>
+            </div>
+          ) : (
+            <button onClick={() => setShowAuth(true)} className="login-button">
+              Login / Register
+            </button>
+          )}
+        </div>
       </header>
       
       <main>
@@ -602,7 +799,8 @@ function App() {
       <footer>
         <p>
           Made with Firebase & React • 
-          {isLoggedIn ? `Signed in as ${userName}` : 'Not signed in'}
+          {isLoggedIn ? `Signed in as ${userName}` : 'Not signed in'} • 
+          Current date: {new Date().toLocaleDateString()}
         </p>
       </footer>
     </div>

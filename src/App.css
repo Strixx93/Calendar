@@ -1,3 +1,71 @@
+:root {
+  /* Light mode variables */
+  --bg-color: #f5f5f5;
+  --text-color: #333;
+  --header-bg: #ffffff;
+  --calendar-bg: #ffffff;
+  --calendar-header-bg: #4285f4;
+  --calendar-header-text: #ffffff;
+  --day-bg: #ffffff;
+  --day-hover-bg: #f1f8ff;
+  --empty-day-bg: #f8f9fa;
+  --available-bg: #e6f4ea;
+  --available-text: #137333;
+  --unavailable-bg: #fce8e6;
+  --unavailable-text: #c5221f;
+  --today-border: #4285f4;
+  --selected-bg: #e8f0fe;
+  --selected-border: #4285f4;
+  --weekday-bg: #f8f9fa;
+  --button-bg: #4285f4;
+  --button-text: white;
+  --button-hover-bg: #3367d6;
+  --button-disabled-bg: #b7b7b7;
+  --border-color: #eaeaea;
+  --shadow-color: rgba(0, 0, 0, 0.1);
+  --auth-bg: #ffffff;
+  --input-bg: #ffffff;
+  --input-border: #ddd;
+  --error-bg: #fce8e6;
+  --error-text: #c5221f;
+  --prompt-bg: #e8f0fe;
+  --prompt-border: #4285f4;
+}
+
+.dark-mode {
+  /* Dark mode variables */
+  --bg-color: #121212;
+  --text-color: #e0e0e0;
+  --header-bg: #1e1e1e;
+  --calendar-bg: #1e1e1e;
+  --calendar-header-bg: #2c5282;
+  --calendar-header-text: #ffffff;
+  --day-bg: #2d2d2d;
+  --day-hover-bg: #3a3a3a;
+  --empty-day-bg: #252525;
+  --available-bg: #1c3a2b;
+  --available-text: #81c995;
+  --unavailable-bg: #3b1e1e;
+  --unavailable-text: #ff8a80;
+  --today-border: #4285f4;
+  --selected-bg: #2c3e50;
+  --selected-border: #64b5f6;
+  --weekday-bg: #252525;
+  --button-bg: #2c5282;
+  --button-text: white;
+  --button-hover-bg: #3b6fb3;
+  --button-disabled-bg: #555555;
+  --border-color: #444444;
+  --shadow-color: rgba(0, 0, 0, 0.3);
+  --auth-bg: #1e1e1e;
+  --input-bg: #2d2d2d;
+  --input-border: #444444;
+  --error-bg: #3b1e1e;
+  --error-text: #ff8a80;
+  --prompt-bg: #2c3e50;
+  --prompt-border: #64b5f6;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -7,8 +75,9 @@
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   line-height: 1.6;
-  color: #333;
-  background-color: #f5f5f5;
+  color: var(--text-color);
+  background-color: var(--bg-color);
+  transition: background-color 0.3s, color 0.3s;
 }
 
 .app {
@@ -24,12 +93,22 @@ header {
   align-items: center;
   margin-bottom: 30px;
   padding-bottom: 15px;
-  border-bottom: 1px solid #eaeaea;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--header-bg);
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px var(--shadow-color);
 }
 
 header h1 {
   font-size: 1.8rem;
-  color: #2c3e50;
+  color: var(--text-color);
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 20px;
 }
 
 .user-controls {
@@ -40,16 +119,18 @@ header h1 {
 
 .user-controls input {
   padding: 8px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--input-border);
   border-radius: 4px;
   font-size: 0.9rem;
+  background-color: var(--input-bg);
+  color: var(--text-color);
 }
 
 .user-controls button,
 .login-button {
   padding: 8px 12px;
-  background-color: #4285f4;
-  color: white;
+  background-color: var(--button-bg);
+  color: var(--button-text);
   border: none;
   border-radius: 4px;
   cursor: pointer;
@@ -59,7 +140,12 @@ header h1 {
 
 .user-controls button:hover,
 .login-button:hover {
-  background-color: #3367d6;
+  background-color: var(--button-hover-bg);
+}
+
+.user-controls button:disabled {
+  background-color: var(--button-disabled-bg);
+  cursor: not-allowed;
 }
 
 .user-controls button:last-child {
@@ -70,25 +156,134 @@ header h1 {
   background-color: #616161;
 }
 
+.username-field {
+  position: relative;
+}
+
+.name-status {
+  position: absolute;
+  font-size: 0.8rem;
+  top: 100%;
+  left: 0;
+  white-space: nowrap;
+}
+
+.name-status .checking {
+  color: #555;
+}
+
+.name-status .taken {
+  color: var(--error-text);
+}
+
+.name-status .available {
+  color: var(--available-text);
+}
+
+/* Dark mode toggle switch */
+.dark-mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.toggle-icon {
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.toggle-icon.light {
+  opacity: 0.9;
+}
+
+.dark-mode .toggle-icon.light {
+  opacity: 0.5;
+}
+
+.toggle-icon.dark {
+  opacity: 0.5;
+}
+
+.dark-mode .toggle-icon.dark {
+  opacity: 0.9;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: 0.4s;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.4s;
+}
+
+input:checked + .slider {
+  background-color: #2196F3;
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px #2196F3;
+}
+
+input:checked + .slider:before {
+  transform: translateX(24px);
+}
+
+.slider.round {
+  border-radius: 24px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
+}
+
 .loading {
   text-align: center;
   padding: 50px;
   font-size: 1.2rem;
-  color: #666;
+  color: var(--text-color);
+  opacity: 0.7;
 }
 
 .login-prompt {
-  background-color: #e8f0fe;
-  border-left: 4px solid #4285f4;
+  background-color: var(--prompt-bg);
+  border-left: 4px solid var(--prompt-border);
   padding: 15px;
   margin-bottom: 20px;
   border-radius: 4px;
+  color: var(--text-color);
 }
 
 .login-prompt button {
   background: none;
   border: none;
-  color: #4285f4;
+  color: var(--calendar-header-bg);
   font-weight: bold;
   cursor: pointer;
   padding: 0 3px;
@@ -96,18 +291,18 @@ header h1 {
 }
 
 .calendar {
-  background-color: white;
+  background-color: var(--calendar-bg);
   border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 10px var(--shadow-color);
 }
 
 .calendar-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background-color: #4285f4;
-  color: white;
+  background-color: var(--calendar-header-bg);
+  color: var(--calendar-header-text);
   padding: 15px 20px;
 }
 
@@ -119,7 +314,7 @@ header h1 {
 .calendar-header button {
   background-color: transparent;
   border: 1px solid rgba(255, 255, 255, 0.6);
-  color: white;
+  color: var(--calendar-header-text);
   padding: 8px 15px;
   border-radius: 4px;
   cursor: pointer;
@@ -133,8 +328,8 @@ header h1 {
 .weekdays {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  background-color: #f8f9fa;
-  border-bottom: 1px solid #eaeaea;
+  background-color: var(--weekday-bg);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .weekday {
@@ -142,74 +337,83 @@ header h1 {
   text-align: center;
   font-weight: 500;
   font-size: 0.9rem;
-  color: #757575;
+  color: var(--text-color);
 }
 
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   grid-gap: 1px;
-  background-color: #eaeaea;
+  background-color: var(--border-color);
 }
 
 .calendar-day {
   min-height: 100px;
-  background-color: white;
+  background-color: var(--day-bg);
   padding: 8px;
   cursor: pointer;
   transition: background-color 0.2s;
 }
 
 .calendar-day:hover {
-  background-color: #f1f8ff;
+  background-color: var(--day-hover-bg);
 }
 
 .calendar-day.empty {
-  background-color: #f8f9fa;
+  background-color: var(--empty-day-bg);
   cursor: default;
 }
 
 .calendar-day.today {
-  border: 2px solid #4285f4;
+  border: 2px solid var(--today-border);
 }
 
 .calendar-day.available {
-  background-color: #e6f4ea;
+  background-color: var(--available-bg);
 }
 
 .calendar-day.selected {
-  background-color: #e8f0fe;
-  border: 2px solid #4285f4;
+  background-color: var(--selected-bg);
+  border: 2px solid var(--selected-border);
 }
 
 .day-number {
   font-weight: 500;
   margin-bottom: 5px;
+  color: var(--text-color);
 }
 
 .availability-count {
   font-size: 0.8rem;
-  color: #666;
+  color: var(--text-color);
+  opacity: 0.8;
   margin-top: 5px;
 }
 
 .selected-date-details {
   margin-top: 30px;
-  background-color: white;
+  background-color: var(--calendar-bg);
   border-radius: 8px;
   padding: 20px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 10px var(--shadow-color);
 }
 
 .selected-date-details h3 {
   margin-bottom: 15px;
   font-size: 1.3rem;
-  color: #2c3e50;
+  color: var(--text-color);
 }
 
 .user-lists {
   display: flex;
   gap: 30px;
+}
+
+@media (max-width: 600px) {
+  .user-lists {
+    flex-direction: column;
+    gap: 20px;
+  }
 }
 
 .available-users,
@@ -221,7 +425,7 @@ header h1 {
   margin-bottom: 10px;
   font-size: 1rem;
   font-weight: 500;
-  color: #555;
+  color: var(--text-color);
 }
 
 .user-item {
@@ -231,21 +435,22 @@ header h1 {
 }
 
 .user-item.available {
-  background-color: #e6f4ea;
-  color: #137333;
+  background-color: var(--available-bg);
+  color: var(--available-text);
 }
 
 .user-item.unavailable {
-  background-color: #fce8e6;
-  color: #c5221f;
+  background-color: var(--unavailable-bg);
+  color: var(--unavailable-text);
 }
 
 footer {
   margin-top: 30px;
   text-align: center;
   padding-top: 20px;
-  border-top: 1px solid #eaeaea;
-  color: #757575;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-color);
+  opacity: 0.7;
   font-size: 0.9rem;
 }
 
@@ -264,18 +469,19 @@ footer {
 }
 
 .auth-container {
-  background-color: white;
+  background-color: var(--auth-bg);
   border-radius: 8px;
   width: 90%;
   max-width: 400px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 20px var(--shadow-color);
   overflow: hidden;
+  transition: background-color 0.3s;
 }
 
 .auth-tabs {
   display: flex;
   position: relative;
-  background-color: #f5f5f5;
+  background-color: var(--weekday-bg);
 }
 
 .auth-tabs button {
@@ -286,12 +492,13 @@ footer {
   font-size: 1rem;
   cursor: pointer;
   transition: all 0.2s;
+  color: var(--text-color);
 }
 
 .auth-tabs button.active {
-  background-color: white;
+  background-color: var(--auth-bg);
   font-weight: 600;
-  color: #4285f4;
+  color: var(--button-bg);
 }
 
 .auth-tabs .close-button {
@@ -304,44 +511,72 @@ footer {
   background: none;
   border: none;
   cursor: pointer;
-  color: #757575;
+  color: var(--text-color);
+  opacity: 0.7;
 }
 
-.auth-form {
+.auth-form-container {
   padding: 20px;
 }
 
 .auth-form h2 {
   margin-bottom: 20px;
-  color: #2c3e50;
+  color: var(--text-color);
   text-align: center;
 }
 
 .form-group {
   margin-bottom: 15px;
+  position: relative;
 }
 
 .form-group label {
   display: block;
   margin-bottom: 5px;
   font-weight: 500;
-  color: #555;
+  color: var(--text-color);
   font-size: 0.9rem;
 }
 
 .form-group input {
   width: 100%;
   padding: 10px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--input-border);
   border-radius: 4px;
   font-size: 1rem;
+  background-color: var(--input-bg);
+  color: var(--text-color);
+}
+
+.form-group input.input-error {
+  border-color: var(--error-text);
+  background-color: var(--error-bg);
+}
+
+.input-error-message {
+  color: var(--error-text);
+  font-size: 0.8rem;
+  margin-top: 4px;
+}
+
+.checking-name {
+  font-weight: normal;
+  font-style: italic;
+  color: var(--text-color);
+  opacity: 0.7;
+}
+
+.preference-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .auth-button {
   width: 100%;
   padding: 12px;
-  background-color: #4285f4;
-  color: white;
+  background-color: var(--button-bg);
+  color: var(--button-text);
   border: none;
   border-radius: 4px;
   font-size: 1rem;
@@ -351,14 +586,72 @@ footer {
 }
 
 .auth-button:hover {
-  background-color: #3367d6;
+  background-color: var(--button-hover-bg);
+}
+
+.auth-button:disabled {
+  background-color: var(--button-disabled-bg);
+  cursor: not-allowed;
 }
 
 .auth-error {
-  background-color: #fce8e6;
-  color: #c5221f;
+  background-color: var(--error-bg);
+  color: var(--error-text);
   padding: 10px;
-  margin: 10px 20px;
+  margin-bottom: 15px;
   border-radius: 4px;
   font-size: 0.9rem;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  header {
+    flex-direction: column;
+    gap: 15px;
+    align-items: flex-start;
+  }
+  
+  .header-controls {
+    width: 100%;
+    flex-direction: column;
+    gap: 15px;
+  }
+  
+  .user-controls {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  
+  .username-field {
+    width: 100%;
+  }
+  
+  .user-controls input {
+    width: 100%;
+  }
+  
+  .calendar-grid {
+    grid-template-columns: repeat(7, 1fr);
+  }
+  
+  .calendar-day {
+    min-height: 80px;
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .calendar-day {
+    min-height: 60px;
+    padding: 5px;
+    font-size: 0.8rem;
+  }
+  
+  .day-number {
+    margin-bottom: 2px;
+  }
+  
+  .availability-count {
+    font-size: 0.7rem;
+  }
 }
