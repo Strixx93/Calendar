@@ -678,3 +678,101 @@ footer {
   font-size: 0.9rem;
   color: var(--text-color);
 }
+
+/* Improved styles for the availability toggle button */
+.availability-toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 15px auto 25px;
+  padding: 18px 20px;
+  background-color: rgba(0, 0, 0, 0.03);
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  max-width: 280px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.availability-toggle p {
+  margin: 5px 0;
+  font-weight: 500;
+  color: var(--text-color);
+}
+
+.toggle-help {
+  font-size: 0.8rem;
+  opacity: 0.7;
+  margin-top: 8px;
+}
+
+.toggle-button {
+  padding: 12px 24px;
+  font-size: 1rem;
+  border-radius: 30px; /* Rounded pill shape */
+  border: none;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  font-weight: 600;
+  width: 200px;
+  margin: 10px 0;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0.5px;
+}
+
+.toggle-button.available {
+  background-color: #d4edda; /* Pale green */
+  color: #155724; /* Darker green text for contrast */
+  border: 1px solid #c3e6cb;
+}
+
+.toggle-button.unavailable {
+  background-color: #f8d7da; /* Pale red */
+  color: #721c24; /* Darker red text for contrast */
+  border: 1px solid #f5c6cb;
+}
+
+.toggle-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
+}
+
+.toggle-button.available:hover {
+  background-color: #c3e6cb; /* Slightly darker on hover */
+}
+
+.toggle-button.unavailable:hover {
+  background-color: #f5c6cb; /* Slightly darker on hover */
+}
+
+.toggle-button:active {
+  transform: translateY(1px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Dark mode adjustments */
+.dark-mode .availability-toggle {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.dark-mode .toggle-button.available {
+  background-color: #184d1e; /* Darker green for dark mode */
+  color: #d4edda;
+  border-color: #2a6e31;
+}
+
+.dark-mode .toggle-button.unavailable {
+  background-color: #4d1818; /* Darker red for dark mode */
+  color: #f8d7da;
+  border-color: #6e2a2a;
+}
+
+.dark-mode .toggle-button.available:hover {
+  background-color: #205d25; /* Even darker on hover */
+}
+
+.dark-mode .toggle-button.unavailable:hover {
+  background-color: #5d2020; /* Even darker on hover */
+}
