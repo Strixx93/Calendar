@@ -14,13 +14,23 @@ import './App.css';
 
 // Replace with your Firebase config
 const firebaseConfig = {
-  apiKey: "YOUR_ACTUAL_API_KEY",
-  authDomain: "your-project.firebaseapp.com",
-  projectId: "your-project",
-  storageBucket: "your-project.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_ID",
-  appId: "YOUR_APP_ID"
+
+  apiKey: "AIzaSyBBOpAC4GH531hVexJHKWK7LqAWSaj6Uqc",
+
+  authDomain: "calendar-f064a.firebaseapp.com",
+
+  projectId: "calendar-f064a",
+
+  storageBucket: "calendar-f064a.firebasestorage.app",
+
+  messagingSenderId: "904299594",
+
+  appId: "1:904299594:web:26a395a6d4a73f635792b3",
+
+  measurementId: "G-7RXFJ1V686"
+
 };
+
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
