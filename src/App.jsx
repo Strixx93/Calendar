@@ -96,12 +96,13 @@ function App() {
     setDarkMode(prevMode => !prevMode);
   };
   
-  // FIXED: Get user profile from Firestore - With proper error handling
+  // FIXED: Get user profile from Firestore - ALWAYS use registration name
   const getUserProfile = async (userId) => {
     try {
       console.log(`Fetching user profile for ID: ${userId}`);
+      setLoading(true);
       
-      // FIXED: Use exact document path with userId
+      // Get user profile directly from Firestore
       const userRef = doc(db, "users", userId);
       const docSnap = await getDoc(userRef);
       
@@ -109,9 +110,9 @@ function App() {
         const userData = docSnap.data();
         console.log("Loaded user data:", userData);
         
+        // Always use the registration name
         if (userData.displayName) {
-          // Profile exists with proper name
-          console.log("Found user profile with name:", userData.displayName);
+          console.log("Using registered name:", userData.displayName);
           setUserName(userData.displayName);
           setOriginalUserName(userData.displayName);
           
@@ -119,64 +120,21 @@ function App() {
           if (userData.darkMode !== undefined) {
             setDarkMode(userData.darkMode);
           }
-          return; // Successfully loaded profile
         } else {
-          console.warn("User profile document exists but missing displayName");
+          // This should never happen, but just in case
+          console.error("Critical error: User profile exists without a displayName");
+          setAuthError("An error occurred while loading your profile. Please contact support.");
         }
       } else {
-        console.warn("No user profile document found");
-      }
-      
-      // If we get here, we need to create or fix the profile
-      const savedDisplayName = localStorage.getItem(`userName_${userId}`);
-      
-      if (savedDisplayName) {
-        // Use locally saved name as backup
-        console.log("Using locally saved name:", savedDisplayName);
-        await saveUserProfile(userId, savedDisplayName);
-        setUserName(savedDisplayName);
-        setOriginalUserName(savedDisplayName);
-      } else {
-        // Create a new profile with default name
-        const defaultName = `User_${userId}`;
-        console.log("Creating new profile with default name:", defaultName);
-        await saveUserProfile(userId, defaultName);
-        setUserName(defaultName);
-        setOriginalUserName(defaultName);
+        // This should never happen with proper registration
+        console.error("Critical error: No user profile document found");
+        setAuthError("An error occurred while loading your profile. Please contact support.");
       }
     } catch (error) {
-      console.error("Error in getUserProfile:", error);
-      // Fallback to a basic default name if all else fails
-      const defaultName = `User_${userId.slice(0, 5)}`;
-      setUserName(defaultName);
-      setOriginalUserName(defaultName);
+      console.error("Error loading user profile:", error);
+      setAuthError("Failed to load your profile. Please try again later.");
     } finally {
       setLoading(false);
-    }
-  };
-  
-  // ADDED: Function to save user profile to Firestore
-  const saveUserProfile = async (userId, displayName, extraData = {}) => {
-    try {
-      const userRef = doc(db, "users", userId);
-      const userData = {
-        uid: userId,
-        displayName: displayName,
-        darkMode: darkMode,
-        updatedAt: new Date().toISOString(),
-        ...extraData
-      };
-      
-      await setDoc(userRef, userData, { merge: true });
-      console.log("User profile saved:", userData);
-      
-      // Save name to localStorage as backup
-      localStorage.setItem(`userName_${userId}`, displayName);
-      
-      return true;
-    } catch (error) {
-      console.error("Error saving user profile:", error);
-      return false;
     }
   };
   
@@ -207,30 +165,6 @@ function App() {
       fetchAllUsers();
     }
   }, [isLoggedIn]);
-  
-  // Handle user authentication state - FIXED
-  useEffect(() => {
-    console.log("Setting up authentication listener");
-    
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        console.log("User is signed in:", user.uid);
-        setUser(user);
-        setIsLoggedIn(true);
-        setShowAuth(false);
-        
-        // Always load user profile on auth state change
-        getUserProfile(user.uid);
-      } else {
-        console.log("No user signed in");
-        setUser(null);
-        setIsLoggedIn(false);
-        setLoading(false);
-      }
-    });
-    
-    return () => unsubscribe();
-  }, []);
   
   // Check if username is available
   const checkUsernameAvailability = async (name, excludeUid = null) => {
@@ -275,6 +209,32 @@ function App() {
       return () => clearTimeout(timeoutId);
     }
   }, [userName, authMode, originalUserName]);
+  
+  // Handle user authentication state
+  useEffect(() => {
+    console.log("Setting up authentication listener");
+    
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        console.log("User is signed in:", user.uid);
+        setUser(user);
+        setIsLoggedIn(true);
+        setShowAuth(false);
+        
+        // Always load the user profile on authentication
+        getUserProfile(user.uid);
+      } else {
+        console.log("No user signed in");
+        setUser(null);
+        setIsLoggedIn(false);
+        setLoading(false);
+        setUserName("");
+        setOriginalUserName("");
+      }
+    });
+    
+    return () => unsubscribe();
+  }, []);
   
   // Subscribe to calendar data for current month
   useEffect(() => {
@@ -335,7 +295,7 @@ function App() {
     }
   }, [currentDate, user]);
   
-  // Register new user - FIXED
+  // Register new user
   const registerUser = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -362,12 +322,17 @@ function App() {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const newUser = userCredential.user;
       
-      // Store user profile in Firestore AND localStorage
+      // Store user profile with chosen name in Firestore
       const displayName = userName.trim();
-      await saveUserProfile(newUser.uid, displayName, {
+      const userProfile = {
+        uid: newUser.uid,
         email: email,
-        createdAt: new Date().toISOString()
-      });
+        displayName: displayName,
+        createdAt: new Date().toISOString(),
+        darkMode: darkMode
+      };
+      
+      await setDoc(doc(db, "users", newUser.uid), userProfile);
       
       console.log("User registered successfully:", newUser.uid);
       setEmail("");
@@ -474,7 +439,7 @@ function App() {
     }
   };
   
-  // Update user name - FIXED
+  // Update user name
   const updateUserName = async () => {
     if (!user || !userName.trim()) return;
     
@@ -497,9 +462,10 @@ function App() {
     }
     
     try {
-      // Save the new username to both Firestore and localStorage
+      // Update user profile in Firestore
       const displayName = userName.trim();
-      await saveUserProfile(user.uid, displayName);
+      const userRef = doc(db, "users", user.uid);
+      await setDoc(userRef, { displayName: displayName }, { merge: true });
       
       // Update username in all calendar entries
       for (const dateStr in calendarData) {
@@ -538,7 +504,9 @@ function App() {
     if (!user) return;
     
     try {
-      await saveUserProfile(user.uid, userName, { darkMode: darkMode });
+      const userRef = doc(db, "users", user.uid);
+      await setDoc(userRef, { darkMode: darkMode }, { merge: true });
+      console.log("Dark mode preference saved");
     } catch (error) {
       console.error("Error saving dark mode preference:", error);
     }
@@ -651,7 +619,7 @@ function App() {
         .filter(u => !markedUserIds.includes(u.uid))
         .map(u => ({
           userId: u.uid,
-          userName: u.displayName || `User_${u.uid.slice(0, 5)}`,
+          userName: u.displayName,
           isAvailable: false,
           updatedAt: null
         }));
