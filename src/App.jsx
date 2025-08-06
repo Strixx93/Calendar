@@ -6,7 +6,9 @@ import {
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword,
   onAuthStateChanged, 
-  signOut 
+  signOut,
+  setPersistence,
+  browserLocalPersistence
 } from "firebase/auth";
 import './App.css';
 
@@ -35,6 +37,11 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
+// Set persistence to LOCAL to ensure auth state persists through refreshes
+setPersistence(auth, browserLocalPersistence)
+  .then(() => console.log("Firebase persistence set to LOCAL"))
+  .catch(error => console.error("Error setting persistence:", error));
+
 function App() {
   // Calendar state
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -42,6 +49,7 @@ function App() {
   const [calendarData, setCalendarData] = useState({});
   const [loading, setLoading] = useState(true);
   const [allUsers, setAllUsers] = useState([]); // Store all users for availability tracking
+  const [profileError, setProfileError] = useState(null);
   
   // Dark mode state
   const [darkMode, setDarkMode] = useState(() => {
@@ -96,23 +104,39 @@ function App() {
     setDarkMode(prevMode => !prevMode);
   };
   
-  // FIXED: Get user profile from Firestore - ALWAYS use registration name
+  // FIXED: Get user profile from Firestore with robust error handling and backup methods
   const getUserProfile = async (userId) => {
     try {
       console.log(`Fetching user profile for ID: ${userId}`);
       setLoading(true);
+      setProfileError(null);
       
-      // Get user profile directly from Firestore
+      // Try to get session-stored username first for immediate display
+      const sessionUserName = sessionStorage.getItem(`userName_${userId}`);
+      if (sessionUserName) {
+        console.log("Using session-stored username while loading from database:", sessionUserName);
+        setUserName(sessionUserName);
+        setOriginalUserName(sessionUserName);
+      }
+      
+      // Get user profile directly from Firestore (primary source)
       const userRef = doc(db, "users", userId);
-      const docSnap = await getDoc(userRef);
+      
+      // Use .catch for getDoc to handle potential network errors
+      const docSnap = await getDoc(userRef).catch(error => {
+        console.error("Error getting document:", error);
+        throw new Error("Failed to fetch profile from database");
+      });
       
       if (docSnap.exists()) {
         const userData = docSnap.data();
         console.log("Loaded user data:", userData);
         
-        // Always use the registration name
-        if (userData.displayName) {
-          console.log("Using registered name:", userData.displayName);
+        if (userData && userData.displayName) {
+          // Store displayName in sessionStorage for quick access after refreshes
+          sessionStorage.setItem(`userName_${userId}`, userData.displayName);
+          
+          console.log("Using profile name from database:", userData.displayName);
           setUserName(userData.displayName);
           setOriginalUserName(userData.displayName);
           
@@ -120,19 +144,44 @@ function App() {
           if (userData.darkMode !== undefined) {
             setDarkMode(userData.darkMode);
           }
+          
+          return true; // Successfully loaded profile
         } else {
-          // This should never happen, but just in case
-          console.error("Critical error: User profile exists without a displayName");
-          setAuthError("An error occurred while loading your profile. Please contact support.");
+          console.error("Profile exists but missing displayName:", userData);
+          setProfileError("Your profile appears to be incomplete. Please update your name.");
+          
+          // If we have a session-stored username, keep using it
+          if (sessionUserName) {
+            return true;
+          }
+          
+          throw new Error("Profile exists but has no display name");
         }
       } else {
-        // This should never happen with proper registration
-        console.error("Critical error: No user profile document found");
-        setAuthError("An error occurred while loading your profile. Please contact support.");
+        console.error("No user profile document found");
+        setProfileError("Your profile could not be found. Please contact support.");
+        
+        // If we have a session-stored username, keep using it
+        if (sessionUserName) {
+          return true;
+        }
+        
+        throw new Error("No profile document exists");
       }
     } catch (error) {
       console.error("Error loading user profile:", error);
-      setAuthError("Failed to load your profile. Please try again later.");
+      
+      // If we have a session-stored username, keep using it despite the error
+      const sessionUserName = sessionStorage.getItem(`userName_${userId}`);
+      if (sessionUserName) {
+        console.log("Using session-stored username after error:", sessionUserName);
+        setUserName(sessionUserName);
+        setOriginalUserName(sessionUserName);
+        return true;
+      }
+      
+      setProfileError("Failed to load your profile. Please try refreshing the page.");
+      return false;
     } finally {
       setLoading(false);
     }
@@ -165,6 +214,41 @@ function App() {
       fetchAllUsers();
     }
   }, [isLoggedIn]);
+  
+  // Handle user authentication state - IMPROVED with better error handling
+  useEffect(() => {
+    console.log("Setting up authentication listener");
+    
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        console.log("User is signed in:", user.uid);
+        setUser(user);
+        setIsLoggedIn(true);
+        setShowAuth(false);
+        
+        // Load user profile with retries on failure
+        getUserProfile(user.uid).then(success => {
+          if (!success) {
+            console.log("Initial profile load failed, retrying once...");
+            // Try again after a short delay
+            setTimeout(() => {
+              getUserProfile(user.uid);
+            }, 1500);
+          }
+        });
+      } else {
+        console.log("No user signed in");
+        setUser(null);
+        setIsLoggedIn(false);
+        setLoading(false);
+        setUserName("");
+        setOriginalUserName("");
+        sessionStorage.removeItem('userName_current'); // Clear session storage on logout
+      }
+    });
+    
+    return () => unsubscribe();
+  }, []);
   
   // Check if username is available
   const checkUsernameAvailability = async (name, excludeUid = null) => {
@@ -209,32 +293,6 @@ function App() {
       return () => clearTimeout(timeoutId);
     }
   }, [userName, authMode, originalUserName]);
-  
-  // Handle user authentication state
-  useEffect(() => {
-    console.log("Setting up authentication listener");
-    
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        console.log("User is signed in:", user.uid);
-        setUser(user);
-        setIsLoggedIn(true);
-        setShowAuth(false);
-        
-        // Always load the user profile on authentication
-        getUserProfile(user.uid);
-      } else {
-        console.log("No user signed in");
-        setUser(null);
-        setIsLoggedIn(false);
-        setLoading(false);
-        setUserName("");
-        setOriginalUserName("");
-      }
-    });
-    
-    return () => unsubscribe();
-  }, []);
   
   // Subscribe to calendar data for current month
   useEffect(() => {
@@ -295,7 +353,7 @@ function App() {
     }
   }, [currentDate, user]);
   
-  // Register new user
+  // Register new user - IMPROVED to store username in session storage
   const registerUser = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -334,6 +392,9 @@ function App() {
       
       await setDoc(doc(db, "users", newUser.uid), userProfile);
       
+      // Also store in session storage for refresh resilience
+      sessionStorage.setItem(`userName_${newUser.uid}`, displayName);
+      
       console.log("User registered successfully:", newUser.uid);
       setEmail("");
       setPassword("");
@@ -346,7 +407,7 @@ function App() {
     }
   };
   
-  // Login existing user
+  // Login existing user - IMPROVED with better error handling
   const loginUser = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -357,13 +418,17 @@ function App() {
     }
     
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      console.log("User logged in successfully");
+      setLoading(true);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      console.log("User logged in successfully:", userCredential.user.uid);
       setEmail("");
       setPassword("");
+      
+      // The onAuthStateChanged listener will handle loading the profile
     } catch (error) {
       console.error("Error logging in:", error);
       setAuthError(error.message);
+      setLoading(false);
     }
   };
   
@@ -373,6 +438,10 @@ function App() {
       await signOut(auth);
       console.log("User signed out");
       setShowAuth(true);
+      // Clear session storage
+      if (user) {
+        sessionStorage.removeItem(`userName_${user.uid}`);
+      }
     } catch (error) {
       console.error("Error signing out:", error);
     }
@@ -439,7 +508,7 @@ function App() {
     }
   };
   
-  // Update user name
+  // Update user name - IMPROVED to update session storage
   const updateUserName = async () => {
     if (!user || !userName.trim()) return;
     
@@ -466,6 +535,9 @@ function App() {
       const displayName = userName.trim();
       const userRef = doc(db, "users", user.uid);
       await setDoc(userRef, { displayName: displayName }, { merge: true });
+      
+      // Also update in session storage
+      sessionStorage.setItem(`userName_${user.uid}`, displayName);
       
       // Update username in all calendar entries
       for (const dateStr in calendarData) {
@@ -872,6 +944,12 @@ function App() {
             {!isLoggedIn && !showAuth && (
               <div className="login-prompt">
                 <p>Please <button onClick={() => setShowAuth(true)}>login or register</button> to interact with the calendar.</p>
+              </div>
+            )}
+            
+            {profileError && (
+              <div className="profile-error">
+                <p>{profileError}</p>
               </div>
             )}
             

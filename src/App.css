@@ -670,3 +670,12 @@ footer {
   font-size: 0.85em;
   opacity: 0.7;
 }
+
+.profile-error {
+  background-color: var(--error-bg);
+  color: var(--error-text);
+  padding: 10px 15px;
+  border-radius: 4px;
+  margin-bottom: 15px;
+  font-size: 0.9rem;
+}
