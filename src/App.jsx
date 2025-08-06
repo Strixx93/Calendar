@@ -41,6 +41,7 @@ function App() {
   const [selectedDate, setSelectedDate] = useState(null);
   const [calendarData, setCalendarData] = useState({});
   const [loading, setLoading] = useState(true);
+  const [allUsers, setAllUsers] = useState([]); // Store all users for availability tracking
   
   // Dark mode state
   const [darkMode, setDarkMode] = useState(() => {
@@ -63,6 +64,11 @@ function App() {
   const [authError, setAuthError] = useState("");
   const [isNameChecking, setIsNameChecking] = useState(false);
   const [isNameAvailable, setIsNameAvailable] = useState(true);
+  
+  // Add this utility function to check if a user is already in local state
+  const isUserProfileLoaded = () => {
+    return user && userName && userName !== "";
+  };
   
   // Apply dark mode to the document
   useEffect(() => {
@@ -89,6 +95,34 @@ function App() {
   const toggleDarkMode = () => {
     setDarkMode(prevMode => !prevMode);
   };
+  
+  // Fetch all users from Firebase
+  const fetchAllUsers = async () => {
+    try {
+      const usersRef = collection(db, "users");
+      const snapshot = await getDocs(usersRef);
+      
+      const users = [];
+      snapshot.forEach(doc => {
+        users.push({
+          uid: doc.id,
+          ...doc.data()
+        });
+      });
+      
+      console.log(`Fetched ${users.length} users from database`);
+      setAllUsers(users);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+    }
+  };
+  
+  // Fetch all users when logged in
+  useEffect(() => {
+    if (isLoggedIn) {
+      fetchAllUsers();
+    }
+  }, [isLoggedIn]);
   
   // Check if username is available
   const checkUsernameAvailability = async (name, excludeUid = null) => {
@@ -134,7 +168,7 @@ function App() {
     }
   }, [userName, authMode, originalUserName]);
   
-  // Handle user authentication state - IMPROVED
+  // Handle user authentication state
   useEffect(() => {
     console.log("Setting up authentication listener");
     let profileFetchAttempted = false;
@@ -163,7 +197,7 @@ function App() {
     return () => unsubscribe();
   }, []);
   
-  // Get user profile from Firestore - IMPROVED
+  // Get user profile from Firestore
   const getUserProfile = async (userId) => {
     try {
       setLoading(true); // Show loading while fetching profile
@@ -242,7 +276,7 @@ function App() {
     try {
       const unsubscribe = onSnapshot(
         availabilityRef, 
-        { includeMetadataChanges: true }, // This helps with more responsive updates
+        { includeMetadataChanges: true },
         (snapshot) => {
           console.log(`Got snapshot with ${snapshot.size} documents, fromCache: ${snapshot.metadata.fromCache}`);
           
@@ -277,7 +311,7 @@ function App() {
     }
   }, [currentDate, user]);
   
-  // Register new user - IMPROVED
+  // Register new user
   const registerUser = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -499,11 +533,6 @@ function App() {
     }
   }, [darkMode, user]);
   
-  // Add this utility function to check if a user is already in local state
-  const isUserProfileLoaded = () => {
-    return user && userName && userName !== "";
-  };
-  
   // Go to previous month
   const prevMonth = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
@@ -560,9 +589,10 @@ function App() {
           }}
         >
           <div className="day-number">{day}</div>
-          {dayUsers.length > 0 && (
+          {/* UPDATED: Only show available count, not total */}
+          {availableCount > 0 && (
             <div className="availability-count">
-              {availableCount}/{dayUsers.length} available
+              {availableCount} available
             </div>
           )}
         </div>
@@ -578,10 +608,38 @@ function App() {
     
     const dateStr = formatDate(selectedDate);
     const dateData = calendarData[dateStr] || {};
-    const users = Object.values(dateData);
     
-    const availableUsers = users.filter(u => u.isAvailable);
-    const unavailableUsers = users.filter(u => !u.isAvailable);
+    // Get all users who explicitly marked their status
+    const markedUsers = Object.values(dateData);
+    
+    // Filter to get available users
+    const availableUsers = markedUsers.filter(u => u.isAvailable);
+    
+    // Create the unavailable users list - include all users who either:
+    // 1. Explicitly marked unavailable
+    // 2. Did not mark their status at all
+    let unavailableUsers = [];
+    
+    // First, add users who explicitly marked as unavailable
+    const explicitlyUnavailableUsers = markedUsers.filter(u => !u.isAvailable);
+    unavailableUsers = [...explicitlyUnavailableUsers];
+    
+    // Then, add users who didn't mark anything for this date
+    if (allUsers.length > 0) {
+      const markedUserIds = markedUsers.map(u => u.userId);
+      
+      // Find all users who haven't marked this date
+      const unmarkedUsers = allUsers
+        .filter(u => !markedUserIds.includes(u.uid))
+        .map(u => ({
+          userId: u.uid,
+          userName: u.displayName || `User_${u.uid.slice(0, 5)}`,
+          isAvailable: false,
+          updatedAt: null
+        }));
+      
+      unavailableUsers = [...unavailableUsers, ...unmarkedUsers];
+    }
     
     return (
       <div className="selected-date-details">
@@ -612,10 +670,11 @@ function App() {
               unavailableUsers.map(user => (
                 <div key={user.userId} className="user-item unavailable">
                   {user.userName}
+                  {!user.updatedAt && <span className="not-responded"> (not responded)</span>}
                 </div>
               ))
             ) : (
-              <p>No one is unavailable</p>
+              <p>Everyone is available!</p>
             )}
           </div>
         </div>
