@@ -29,7 +29,6 @@ const firebaseConfig = {
 
 };
 
-
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
@@ -171,7 +170,6 @@ function App() {
   // Handle user authentication state
   useEffect(() => {
     console.log("Setting up authentication listener");
-    let profileFetchAttempted = false;
     
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
@@ -180,59 +178,112 @@ function App() {
         setIsLoggedIn(true);
         setShowAuth(false);
         
-        // Prevent duplicate profile fetching
-        if (!profileFetchAttempted) {
-          profileFetchAttempted = true;
-          getUserProfile(user.uid);
-        }
+        // Always fetch the user profile when signing in
+        getUserProfile(user.uid);
       } else {
         console.log("No user signed in");
         setUser(null);
         setIsLoggedIn(false);
         setLoading(false);
-        profileFetchAttempted = false;
       }
     });
     
     return () => unsubscribe();
   }, []);
   
-  // Get user profile from Firestore
+  // Get user profile from Firestore - IMPROVED to fix cross-device username issue
   const getUserProfile = async (userId) => {
     try {
       setLoading(true); // Show loading while fetching profile
       console.log(`Fetching user profile for ID: ${userId}`);
       
+      // First, try to get profile directly from Firestore with no caching
       const userRef = doc(db, "users", userId);
       const docSnap = await getDoc(userRef);
       
       if (docSnap.exists()) {
         const userData = docSnap.data();
         
-        // Check if displayName exists in the profile
+        // Verify profile has required fields
         if (userData.displayName) {
           console.log("Profile found with name:", userData.displayName);
           setUserName(userData.displayName);
           setOriginalUserName(userData.displayName);
-        } else {
-          // Handle missing displayName
-          console.warn("User profile exists but has no displayName");
-          const defaultName = `User_${userId.slice(0, 5)}`;
-          setUserName(defaultName);
-          setOriginalUserName(defaultName);
           
-          // Update profile with default name
-          await setDoc(userRef, { displayName: defaultName }, { merge: true });
+          // Load dark mode preference if it exists
+          if (userData.darkMode !== undefined) {
+            setDarkMode(userData.darkMode);
+          }
+          
+          setLoading(false);
+          return; // Successfully loaded profile, exit function
         }
         
-        // Load dark mode preference if it exists
-        if (userData.darkMode !== undefined) {
-          setDarkMode(userData.darkMode);
+        // If we got here, profile exists but missing displayName
+        console.warn("User profile exists but has no displayName, attempting to repair");
+        
+        // Try to find this user in the all users collection
+        // This helps if the user has logged in from other devices before
+        const usersRef = collection(db, "users");
+        const q = query(usersRef, where("uid", "==", userId));
+        const usersSnapshot = await getDocs(q);
+        
+        if (!usersSnapshot.empty) {
+          // If we found any profile data in other documents
+          let foundName = null;
+          
+          usersSnapshot.forEach((doc) => {
+            const data = doc.data();
+            if (data.displayName) {
+              foundName = data.displayName;
+            }
+          });
+          
+          if (foundName) {
+            console.log("Found name in other documents:", foundName);
+            await setDoc(userRef, { displayName: foundName }, { merge: true });
+            setUserName(foundName);
+            setOriginalUserName(foundName);
+            setLoading(false);
+            return; // Successfully repaired, exit function
+          }
         }
+        
+        // Last resort: create a more stable default name
+        const defaultName = `User_${userId.slice(0, 8)}`;
+        console.log("Creating new default name:", defaultName);
+        
+        await setDoc(userRef, { displayName: defaultName }, { merge: true });
+        setUserName(defaultName);
+        setOriginalUserName(defaultName);
+        
       } else {
-        // Handle missing profile document
+        // Handle missing profile document - this shouldn't happen for existing users
         console.warn("No user profile document found, creating one");
-        const defaultName = `User_${userId.slice(0, 5)}`;
+        
+        // Search for any existing profile data first
+        const usersRef = collection(db, "users");
+        const q = query(usersRef, where("uid", "==", userId));
+        const usersSnapshot = await getDocs(q);
+        
+        let defaultName = `User_${userId.slice(0, 8)}`;
+        let foundProfile = false;
+        
+        if (!usersSnapshot.empty) {
+          usersSnapshot.forEach((doc) => {
+            const data = doc.data();
+            if (data.displayName) {
+              defaultName = data.displayName;
+              foundProfile = true;
+            }
+          });
+        }
+        
+        if (foundProfile) {
+          console.log("Found existing profile data:", defaultName);
+        } else {
+          console.log("Creating entirely new profile");
+        }
         
         // Create a new user profile document
         await setDoc(userRef, {
@@ -633,7 +684,7 @@ function App() {
         .filter(u => !markedUserIds.includes(u.uid))
         .map(u => ({
           userId: u.uid,
-          userName: u.displayName || `User_${u.uid.slice(0, 5)}`,
+          userName: u.displayName || `User_${u.uid.slice(0, 8)}`,
           isAvailable: false,
           updatedAt: null
         }));
