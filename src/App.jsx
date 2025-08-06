@@ -12,23 +12,13 @@ import './App.css';
 
 // Replace with your Firebase config
 const firebaseConfig = {
-
-  apiKey: "AIzaSyBBOpAC4GH531hVexJHKWK7LqAWSaj6Uqc",
-
-  authDomain: "calendar-f064a.firebaseapp.com",
-
-  projectId: "calendar-f064a",
-
-  storageBucket: "calendar-f064a.firebasestorage.app",
-
-  messagingSenderId: "904299594",
-
-  appId: "1:904299594:web:26a395a6d4a73f635792b3",
-
-  measurementId: "G-7RXFJ1V686"
-
+  apiKey: "YOUR_ACTUAL_API_KEY",
+  authDomain: "your-project.firebaseapp.com",
+  projectId: "your-project",
+  storageBucket: "your-project.appspot.com",
+  messagingSenderId: "YOUR_MESSAGING_ID",
+  appId: "YOUR_APP_ID"
 };
-
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -134,9 +124,11 @@ function App() {
     }
   }, [userName, authMode, originalUserName]);
   
-  // Handle user authentication state
+  // Handle user authentication state - IMPROVED
   useEffect(() => {
     console.log("Setting up authentication listener");
+    let profileFetchAttempted = false;
+    
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         console.log("User is signed in:", user.uid);
@@ -144,45 +136,79 @@ function App() {
         setIsLoggedIn(true);
         setShowAuth(false);
         
-        // Fetch user profile
-        getUserProfile(user.uid);
+        // Prevent duplicate profile fetching
+        if (!profileFetchAttempted) {
+          profileFetchAttempted = true;
+          getUserProfile(user.uid);
+        }
       } else {
         console.log("No user signed in");
         setUser(null);
         setIsLoggedIn(false);
         setLoading(false);
+        profileFetchAttempted = false;
       }
     });
     
     return () => unsubscribe();
   }, []);
   
-  // Get user profile from Firestore
+  // Get user profile from Firestore - IMPROVED
   const getUserProfile = async (userId) => {
     try {
+      setLoading(true); // Show loading while fetching profile
+      console.log(`Fetching user profile for ID: ${userId}`);
+      
       const userRef = doc(db, "users", userId);
       const docSnap = await getDoc(userRef);
       
       if (docSnap.exists()) {
         const userData = docSnap.data();
-        setUserName(userData.displayName || "");
-        setOriginalUserName(userData.displayName || "");
         
-        // Load user's dark mode preference if it exists
+        // Check if displayName exists in the profile
+        if (userData.displayName) {
+          console.log("Profile found with name:", userData.displayName);
+          setUserName(userData.displayName);
+          setOriginalUserName(userData.displayName);
+        } else {
+          // Handle missing displayName
+          console.warn("User profile exists but has no displayName");
+          const defaultName = `User_${userId.slice(0, 5)}`;
+          setUserName(defaultName);
+          setOriginalUserName(defaultName);
+          
+          // Update profile with default name
+          await setDoc(userRef, { displayName: defaultName }, { merge: true });
+        }
+        
+        // Load dark mode preference if it exists
         if (userData.darkMode !== undefined) {
           setDarkMode(userData.darkMode);
         }
-        
-        console.log("User profile loaded:", userData.displayName);
       } else {
-        console.log("No user profile found");
+        // Handle missing profile document
+        console.warn("No user profile document found, creating one");
+        const defaultName = `User_${userId.slice(0, 5)}`;
+        
+        // Create a new user profile document
+        await setDoc(userRef, {
+          uid: userId,
+          displayName: defaultName,
+          createdAt: new Date().toISOString(),
+          darkMode: darkMode
+        });
+        
+        setUserName(defaultName);
+        setOriginalUserName(defaultName);
       }
     } catch (error) {
       console.error("Error fetching user profile:", error);
+    } finally {
+      setLoading(false);
     }
   };
   
-  // Subscribe to calendar data for current month with improved real-time updates
+  // Subscribe to calendar data for current month
   useEffect(() => {
     if (!user) {
       console.log("No user yet, skipping calendar data subscription");
@@ -241,7 +267,7 @@ function App() {
     }
   }, [currentDate, user]);
   
-  // Register new user
+  // Register new user - IMPROVED
   const registerUser = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -262,6 +288,8 @@ function App() {
     }
     
     try {
+      setLoading(true); // Show loading state
+      
       // Create account with email/password
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const newUser = userCredential.user;
@@ -272,16 +300,20 @@ function App() {
         email: email,
         displayName: userName.trim(),
         createdAt: new Date().toISOString(),
-        darkMode: darkMode // Save user's dark mode preference
+        darkMode: darkMode
       });
       
       console.log("User registered successfully:", newUser.uid);
       setEmail("");
       setPassword("");
       setOriginalUserName(userName);
+      
+      // Explicitly set the user name in state
+      setUserName(userName.trim());
     } catch (error) {
       console.error("Error registering user:", error);
       setAuthError(error.message);
+      setLoading(false);
     }
   };
   
@@ -456,6 +488,11 @@ function App() {
       saveDarkModePreference();
     }
   }, [darkMode, user]);
+  
+  // Add this utility function to check if a user is already in local state
+  const isUserProfileLoaded = () => {
+    return user && userName && userName !== "";
+  };
   
   // Go to previous month
   const prevMonth = () => {
@@ -728,35 +765,39 @@ function App() {
           <DarkModeToggle />
           
           {isLoggedIn ? (
-            <div className="user-controls">
-              <div className="username-field">
-                <input 
-                  type="text" 
-                  value={userName} 
-                  onChange={(e) => setUserName(e.target.value)}
-                  placeholder="Your name" 
-                  className={!isNameAvailable ? 'input-error' : ''}
-                />
-                {userName !== originalUserName && (
-                  <div className="name-status">
-                    {isNameChecking ? (
-                      <span className="checking">Checking...</span>
-                    ) : !isNameAvailable ? (
-                      <span className="taken">Username already taken</span>
-                    ) : (
-                      <span className="available">Username available</span>
-                    )}
-                  </div>
-                )}
+            loading && !isUserProfileLoaded() ? (
+              <div className="loading-profile">Loading profile...</div>
+            ) : (
+              <div className="user-controls">
+                <div className="username-field">
+                  <input 
+                    type="text" 
+                    value={userName} 
+                    onChange={(e) => setUserName(e.target.value)}
+                    placeholder="Your name" 
+                    className={!isNameAvailable ? 'input-error' : ''}
+                  />
+                  {userName !== originalUserName && (
+                    <div className="name-status">
+                      {isNameChecking ? (
+                        <span className="checking">Checking...</span>
+                      ) : !isNameAvailable ? (
+                        <span className="taken">Username already taken</span>
+                      ) : (
+                        <span className="available">Username available</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <button 
+                  onClick={updateUserName}
+                  disabled={userName === originalUserName || isNameChecking || !isNameAvailable}
+                >
+                  Update Name
+                </button>
+                <button onClick={handleSignOut}>Sign Out</button>
               </div>
-              <button 
-                onClick={updateUserName}
-                disabled={userName === originalUserName || isNameChecking || !isNameAvailable}
-              >
-                Update Name
-              </button>
-              <button onClick={handleSignOut}>Sign Out</button>
-            </div>
+            )
           ) : (
             <button onClick={() => setShowAuth(true)} className="login-button">
               Login / Register
