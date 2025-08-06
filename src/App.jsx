@@ -104,7 +104,17 @@ function App() {
     setDarkMode(prevMode => !prevMode);
   };
   
-  // FIXED: Get user profile from Firestore without unnecessary error messages
+  // Check if user is available on selected date
+  const isUserAvailableOnSelectedDate = () => {
+    if (!user || !selectedDate) return false;
+    
+    const dateStr = formatDate(selectedDate);
+    const dateData = calendarData[dateStr] || {};
+    
+    return dateData[user.uid]?.isAvailable === true;
+  };
+  
+  // Get user profile from Firestore without unnecessary error messages
   const getUserProfile = async (userId) => {
     try {
       console.log(`Fetching user profile for ID: ${userId}`);
@@ -453,14 +463,14 @@ function App() {
     }
   };
   
-  // Toggle availability for a date
-  const toggleAvailability = async (date) => {
-    if (!user) {
-      setShowAuth(true);
+  // MODIFIED: Toggle availability for a date (now a separate function from selecting a date)
+  const toggleAvailability = async () => {
+    if (!user || !selectedDate) {
+      if (!user) setShowAuth(true);
       return;
     }
     
-    const dateStr = formatDate(date);
+    const dateStr = formatDate(selectedDate);
     console.log(`Toggling availability for ${dateStr}`);
     
     try {
@@ -648,8 +658,8 @@ function App() {
           key={day} 
           className={`calendar-day ${isUserAvailable ? 'available' : ''} ${isSelected ? 'selected' : ''} ${isToday ? 'today' : ''}`}
           onClick={() => {
+            // MODIFIED: Now only selects the date without toggling availability
             setSelectedDate(date);
-            toggleAvailability(date);
           }}
         >
           <div className="day-number">{day}</div>
@@ -705,6 +715,9 @@ function App() {
       unavailableUsers = [...unavailableUsers, ...unmarkedUsers];
     }
     
+    // Check if the current user is available on this date
+    const isAvailable = isUserAvailableOnSelectedDate();
+    
     return (
       <div className="selected-date-details">
         <h3>{selectedDate.toLocaleDateString('en-US', { 
@@ -713,6 +726,20 @@ function App() {
           month: 'long', 
           day: 'numeric' 
         })}</h3>
+        
+        {/* NEW: Add availability toggle button */}
+        {isLoggedIn && (
+          <div className="availability-toggle">
+            <p>Your availability:</p>
+            <button 
+              onClick={toggleAvailability}
+              className={`toggle-button ${isAvailable ? 'available' : 'unavailable'}`}
+            >
+              {isAvailable ? 'Available ✓' : 'Unavailable ✗'}
+            </button>
+            <p className="toggle-help">Click to change your availability</p>
+          </div>
+        )}
         
         <div className="user-lists">
           <div className="available-users">
